@@ -14,6 +14,56 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # --- jitpack回避: greendao-generator を自前ビルドして mavenLocal に配置 ---
+      - name: Build greendao dependency locally (bypass jitpack)
+        run: |
+          set -eux
+          HASH=1998d7cd2d21f662c6044f6ccf3b3a251bbad341
+          WORK=$(mktemp -d)
+          git clone https://github.com/Freeyourgadget/greenDAO.git "$WORK/gd"
+          git -C "$WORK/gd" checkout "$HASH"
+          # freemarker（生成器の唯一の依存）を取得
+          curl -sSL -o "$WORK/freemarker.jar" \
+            https://repo1.maven.org/maven2/org/freemarker/freemarker/2.3.23/freemarker-2.3.23.jar
+          # DaoGenerator（純Java）をコンパイル
+          mkdir -p "$WORK/classes"
+          find "$WORK/gd/DaoGenerator/src" -name '*.java' > "$WORK/srcs.txt"
+          javac --release 8 -cp "$WORK/freemarker.jar" -d "$WORK/classes" @"$WORK/srcs.txt"
+          # テンプレート(.ftl)をクラスパス直下に同梱
+          cp "$WORK/gd/DaoGenerator/src-template/"*.ftl "$WORK/classes/"
+          # jar化
+          jar cf "$WORK/greendao-$HASH.jar" -C "$WORK/classes" .
+          # jitpack座標に一致するPOM（freemarkerを推移的依存として宣言）
+          # ※YAMLブロック内ではヒアドキュメントが壊れやすいのでechoで生成する
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+            echo '  <modelVersion>4.0.0</modelVersion>'
+            echo '  <groupId>com.github.Freeyourgadget</groupId>'
+            echo '  <artifactId>greendao</artifactId>'
+            echo "  <version>$HASH</version>"
+            echo '  <packaging>jar</packaging>'
+            echo '  <dependencies><dependency>'
+            echo '    <groupId>org.freemarker</groupId>'
+            echo '    <artifactId>freemarker</artifactId>'
+            echo '    <version>2.3.23</version>'
+            echo '  </dependency></dependencies>'
+            echo '</project>'
+          } > "$WORK/greendao-$HASH.pom"
+          # mavenLocal (~/.m2/repository) に設置
+          DEST="$HOME/.m2/repository/com/github/Freeyourgadget/greendao/$HASH"
+          mkdir -p "$DEST"
+          cp "$WORK/greendao-$HASH.jar" "$DEST/"
+          cp "$WORK/greendao-$HASH.pom" "$DEST/"
+          echo "installed greendao to mavenLocal:"
+          ls -l "$DEST"
+
+      # Gadgetbridgeのリポジトリ設定に mavenLocal() を追加（ビルド時のみ・コミット不要）
+      - name: Enable mavenLocal in build
+        run: |
+          set -eux
+          sed -i 's/\(^[[:space:]]*\)repositories {/\1repositories {\n\1    mavenLocal()/' build.gradle
+
       - name: Build debug APK
         run: ./gradlew assembleMainlineDebug --stacktrace || ./gradlew assembleDebug --stacktrace
 
