@@ -200,6 +200,7 @@ public class XiaomiAuthService extends AbstractXiaomiService {
 
     @Nullable
     private XiaomiProto.Command handleWatchNonce(final XiaomiProto.WatchNonce watchNonce) {
+        LOG.warn("AUTHBRUTE self={} watch={} hmac={}", GB.hexdump(nonce), GB.hexdump(watchNonce.getNonce().toByteArray()), GB.hexdump(watchNonce.getHmac().toByteArray()));
         final byte[] step2hmac = computeAuthStep3Hmac(secretKey, nonce, watchNonce.getNonce().toByteArray());
 
         System.arraycopy(step2hmac, 0, decryptionKey, 0, 16);
